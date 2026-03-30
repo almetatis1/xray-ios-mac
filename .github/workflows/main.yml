@@ -47,15 +47,16 @@ jobs:
 
       - name: Build App
         run: |
-          # Автоматическое определение схемы сборки
+          # Автоматическое определение схемы
           SCHEME=$(xcodebuild -list -workspace *.xcworkspace | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
           echo "Building scheme: $SCHEME"
           
+          # Собираем сразу в папку, минуя стадию архивации
           xcodebuild -workspace *.xcworkspace -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
-            -archivePath $PWD/build/App.xcarchive \
-            clean archive \
+            -derivedDataPath $PWD/build_data \
+            clean build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY=""
@@ -63,12 +64,12 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p build/Payload
-          # Ищем файл .app внутри архива, игнорируя регистр и точный путь
-          APP_PATH=$(find build/App.xcarchive -name "*.app" -type d | head -n 1)
+          # Ищем .app в папке скомпилированных данных
+          APP_PATH=$(find build_data -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
           echo "Found App at: $APP_PATH"
           
           if [ -z "$APP_PATH" ]; then
-            echo "Error: .app file not found in archive!"
+            echo "Error: .app file not found!"
             exit 1
           fi
           
