@@ -1,9 +1,5 @@
-name: Build Customized Xray iOS
-
-on:
-  push:
-    branches: [ "main", "master" ] # Запускать при пуше в основные ветки
-  workflow_dispatch: # Позволяет запускать сборку вручную
+name: Build NetSpec iOS
+on: [push, workflow_dispatch]
 
 jobs:
   build:
@@ -23,73 +19,42 @@ jobs:
             pod install
           fi
 
-      # --- БЛОК КАСТОМИЗАЦИИ НАЧИНАЕТСЯ ЗДЕСЬ ---
-      - name: Customize App (Name, BundleID, Icon)
+      - name: Customize App
         run: |
-          # 1. Ваши настройки
-          NEW_NAME="NetSpec" # Название приложения на экране
-          NEW_BUNDLE_ID="com.artem.netspec" # Уникальный ID (латиница, точки)
-          ICON_SOURCE="$PWD/AppIcon.png" # Путь к вашей загруженной иконке
-
-          # 2. Поиск файлов настроек
-          # Находим основной Info.plist (манифест)
+          # 1. Настройки
+          NEW_NAME="NetSpec"
+          NEW_BUNDLE_ID="com.artem.netspec"
+          
+          # 2. Название и ID (Поиск Info.plist)
           PLIST_PATH=$(find . -name "Info.plist" | grep -v "Tests" | head -n 1)
-          # Находим папку с иконками в Assets
-          ASSETS_PATH=$(find . -name "Assets.xcassets" | head -n 1)
-          APPICON_SET_PATH="$ASSETS_PATH/AppIcon.appiconset"
-
-          echo "Found Info.plist at: $PLIST_PATH"
-          echo "Found AppIconset at: $APPICON_SET_PATH"
-
-          # 3. Меняем Название (plutil - встроенная утилита macOS)
-          plutil -replace CFBundleDisplayName -string "$NEW_NAME" "$PLIST_PATH"
-          plutil -replace CFBundleName -string "$NEW_NAME" "$PLIST_PATH"
-
-          # 4. Меняем Bundle Identifier
-          plutil -replace CFBundleIdentifier -string "$NEW_BUNDLE_ID" "$PLIST_PATH"
-
-          # 5. Замена иконок
-          if [ -f "$ICON_SOURCE" ] && [ -d "$APPICON_SET_PATH" ]; then
-            echo "Replacing icons..."
-            
-            # Удаляем все старые файлы иконок в наборе
-            rm "$APPICON_SET_PATH"/*.png
-
-            # Нам нужно создать JSON файл Contents.json, который говорит Xcode,
-            # какой файл использовать для какого размера. Мы упростим:
-            # Сделаем один файл для всех размеров (Xcode 15+ это позволяет)
-            
-            cp "$ICON_SOURCE" "$APPICON_SET_PATH/icon.png"
-
-            # Создаем минимальный Contents.json
-            cat <<EOF > "$APPICON_SET_PATH/Contents.json"
-{
-  "images" : [
-    {
-      "idiom" : "universal",
-      "platform" : "ios",
-      "size" : "1024x1024",
-      "filename" : "icon.png"
-    }
-  ],
-  "info" : {
-    "version" : 1,
-    "author" : "xcode"
-  }
-}
-EOF
-            echo "Icons replaced successfully."
-          else
-            echo "WARNING: AppIcon.png not found or Assets path not correct."
+          if [ -n "$PLIST_PATH" ]; then
+            echo "Customizing $PLIST_PATH"
+            plutil -replace CFBundleDisplayName -string "$NEW_NAME" "$PLIST_PATH"
+            plutil -replace CFBundleName -string "$NEW_NAME" "$PLIST_PATH"
+            plutil -replace CFBundleIdentifier -string "$NEW_BUNDLE_ID" "$PLIST_PATH"
           fi
-      # --- БЛОК КАСТОМИЗАЦИИ ЗАВЕРШЕН ---
+
+          # 3. Иконка (Замена в Assets)
+          if [ -f "$PWD/AppIcon.png" ]; then
+            ASSETS_PATH=$(find . -name "Assets.xcassets" | head -n 1)
+            APPICON_SET_PATH="$ASSETS_PATH/AppIcon.appiconset"
+            mkdir -p "$APPICON_SET_PATH"
+            rm -f "$APPICON_SET_PATH"/*.png
+            cp "$PWD/AppIcon.png" "$APPICON_SET_PATH/icon.png"
+            printf '{"images":[{"idiom":"universal","platform":"ios","size":"1024x1024","filename":"icon.png"}],"info":{"version":1,"author":"xcode"}}' > "$APPICON_SET_PATH/Contents.json"
+            echo "Icon updated to NetSpec style."
+          fi
 
       - name: Build App
         run: |
-          xcodebuild -workspace *.xcworkspace -scheme "Xray" \
+          # Автоматическое определение схемы сборки
+          SCHEME=$(xcodebuild -list -workspace *.xcworkspace | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
+          echo "Building scheme: $SCHEME"
+          
+          xcodebuild -workspace *.xcworkspace -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
-            -archivePath $PWD/build/Xray.xcarchive \
+            -archivePath $PWD/build/App.xcarchive \
             clean archive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -98,11 +63,11 @@ EOF
       - name: Prepare IPA
         run: |
           mkdir -p build/Payload
-          cp -r build/Xray.xcarchive/Products/Applications/*.app build/Payload/
+          cp -r build/App.xcarchive/Products/Applications/*.app build/Payload/
           cd build && zip -r NetSpec.ipa Payload
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetSpec-iOS-Unsigned
+          name: NetSpec-IPA
           path: build/NetSpec.ipa
