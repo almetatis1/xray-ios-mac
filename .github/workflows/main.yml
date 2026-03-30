@@ -47,15 +47,17 @@ jobs:
 
       - name: Build App
         run: |
-          # Автоматическое определение схемы
+          # 1. Авто-поиск схемы
           SCHEME=$(xcodebuild -list -workspace *.xcworkspace | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
           echo "Building scheme: $SCHEME"
           
-          # Собираем сразу в папку, минуя стадию архивации
+          # 2. Сборка с принудительным выводом в конкретную папку
           xcodebuild -workspace *.xcworkspace -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
-            -derivedDataPath $PWD/build_data \
+            -derivedDataPath $PWD/derived_data \
+            OBJROOT=$PWD/build.obj \
+            SYMROOT=$PWD/build.sym \
             clean build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -64,17 +66,29 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p build/Payload
-          # Ищем .app в папке скомпилированных данных
-          APP_PATH=$(find build_data -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
-          echo "Found App at: $APP_PATH"
+          
+          # Ищем файл .app по всему проекту, исключая папки симуляторов
+          APP_PATH=$(find . -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
+          
+          # Если не нашли в Release-iphoneos, ищем любой .app (на крайний случай)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find . -name "*.app" -type d | head -n 1)
+          fi
+          
+          echo "FINAL APP PATH: $APP_PATH"
           
           if [ -z "$APP_PATH" ]; then
-            echo "Error: .app file not found!"
+            echo "Error: .app file still not found! Listing files for debug:"
+            find . -maxdepth 4 -name "*.app"
             exit 1
           fi
           
+          # Копируем найденное приложение в Payload
           cp -r "$APP_PATH" build/Payload/
+          
+          # Создаем IPA
           cd build && zip -r NetSpec.ipa Payload
+          echo "IPA created successfully at build/NetSpec.ipa"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
