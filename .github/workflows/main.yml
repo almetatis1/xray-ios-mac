@@ -63,7 +63,16 @@ jobs:
       - name: Prepare IPA
         run: |
           mkdir -p build/Payload
-          cp -r build/App.xcarchive/Products/Applications/*.app build/Payload/
+          # Ищем файл .app внутри архива, игнорируя регистр и точный путь
+          APP_PATH=$(find build/App.xcarchive -name "*.app" -type d | head -n 1)
+          echo "Found App at: $APP_PATH"
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app file not found in archive!"
+            exit 1
+          fi
+          
+          cp -r "$APP_PATH" build/Payload/
           cd build && zip -r NetSpec.ipa Payload
 
       - name: Upload Artifact
