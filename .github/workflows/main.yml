@@ -51,18 +51,19 @@ jobs:
           SCHEME=$(xcodebuild -list -workspace *.xcworkspace | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
           echo "Building scheme: $SCHEME"
           
-          # 2. Создаем свою папку для результата
           mkdir -p $PWD/output
           
-          # 3. Собираем принудительно в нашу папку
+          # 2. Сборка с тотальным игнорированием подписей (AD_HOC)
           xcodebuild -workspace *.xcworkspace -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             CONFIGURATION_BUILD_DIR=$PWD/output \
-            clean build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_IDENTITY=""
+            CODE_SIGNING_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean build
 
       - name: Prepare IPA
         run: |
