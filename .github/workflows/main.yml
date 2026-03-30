@@ -47,44 +47,43 @@ jobs:
 
       - name: Build App
         run: |
-          # 1. Определяем схему
+          # 1. Автоматически находим схему (обычно это xNetFuture или Xray)
           SCHEME=$(xcodebuild -list -workspace *.xcworkspace | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
           echo "Building scheme: $SCHEME"
           
           mkdir -p $PWD/output
           
-          # 2. Сборка с тотальным игнорированием подписей (AD_HOC)
-          xcodebuild -workspace *.xcworkspace -scheme "$SCHEME" \
+          # 2. Сборка архива без подписи
+          # Добавляем SKIP_INSTALL=NO чтобы Xcode положил бинарник в архив
+          xcodebuild archive -workspace *.xcworkspace -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
-            CONFIGURATION_BUILD_DIR=$PWD/output \
+            -archivePath $PWD/build/NetSpec.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_IDENTITY="" \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            clean build
+            CODE_SIGN_IDENTITY="" \
+            BITCODE_GENERATION_MODE=bitcode \
+            STRIP_INSTALLED_PRODUCT=NO \
+            SKIP_INSTALL=NO
 
       - name: Prepare IPA
         run: |
           mkdir -p build/Payload
           
-          # Ищем .app только в нашей папке output
-          APP_PATH=$(find $PWD/output -name "*.app" -type d -maxdepth 1 | head -n 1)
+          # Ищем .app внутри созданного архива
+          APP_PATH=$(find build/NetSpec.xcarchive -name "*.app" -type d | head -n 1)
           echo "FINAL APP PATH: $APP_PATH"
           
           if [ -z "$APP_PATH" ]; then
-            echo "CRITICAL ERROR: App not found in output folder. Listing output directory:"
-            ls -R $PWD/output
-            exit 1
+            echo "Error: .app not found in archive. Checking build folder..."
+            APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
+          fi
+          
+          if [ -z "$APP_PATH" ]; then
+             echo "Listing all files to find where it is..."
+             find build -maxdepth 10
+             exit 1
           fi
           
           cp -r "$APP_PATH" build/Payload/
           cd build && zip -r NetSpec.ipa Payload
-          echo "Success! IPA created."
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: NetSpec-IPA
-          path: build/NetSpec.ipa
