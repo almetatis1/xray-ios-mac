@@ -47,43 +47,52 @@ jobs:
 
       - name: Build App
         run: |
-          SCHEME=$(xcodebuild -list -workspace *.xcworkspace | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
-          echo "Building scheme: $SCHEME"
+          # В этом репозитории основная схема обычно называется 'xNetFuture' или 'Xray'
+          # Мы попробуем собрать конкретный таргет
           
-          # Мы добавляем '|| true', чтобы скрипт не падал на ошибке регистрации фреймворка
-          xcodebuild build -workspace *.xcworkspace -scheme "$SCHEME" \
-            -configuration Release \
-            -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            || echo "Xcode failed, but we will try to find the binary anyway..."
+          mkdir -p $PWD/build_output
+          
+          xcodebuild-safe() {
+            xcodebuild -workspace *.xcworkspace -scheme "$1" \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath $PWD/derived_data \
+              CONFIGURATION_BUILD_DIR=$PWD/build_output \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              AD_HOC_CODE_SIGNING_ALLOWED=YES \
+              clean build || echo "Failed to build $1, trying next..."
+          }
+
+          # Пробуем две самые вероятные схемы по очереди
+          xcodebuild-safe "xNetFuture"
+          xcodebuild-safe "Xray"
 
       - name: Prepare IPA
         run: |
           mkdir -p build/Payload
           
-          # Ищем .app файл в недрах DerivedData
-          # Это самое надежное место, куда Xcode складывает результат
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
+          # Ищем .app файл в нашей папке build_output
+          APP_PATH=$(find $PWD/build_output -name "*.app" -type d | head -n 1)
           
-          echo "SEARCHING FOR APP..."
+          echo "CHECKING FOLDERS..."
+          ls -R $PWD/build_output || echo "Folder empty"
+
           if [ -z "$APP_PATH" ]; then
-            # Если не нашли в стандартном месте, ищем везде в папке воркспейса
-            APP_PATH=$(find . -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
+            echo "Searching in derived_data as backup..."
+            APP_PATH=$(find $PWD/derived_data -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
           fi
 
           echo "FINAL APP PATH: $APP_PATH"
           
           if [ -z "$APP_PATH" ]; then
-            echo "Error: Application binary not found. Compilation really failed."
+            echo "CRITICAL ERROR: No .app file was created. Xcode is blocking build without Provisioning Profile."
             exit 1
           fi
           
           cp -r "$APP_PATH" build/Payload/
           cd build && zip -r NetSpec.ipa Payload
-          echo "NetSpec.ipa created!"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
