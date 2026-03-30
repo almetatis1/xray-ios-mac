@@ -73,26 +73,28 @@ jobs:
         run: |
           mkdir -p build/Payload
           
-          # Ищем .app файл в нашей папке build_output
-          APP_PATH=$(find $PWD/build_output -name "*.app" -type d | head -n 1)
+          echo "--- ГЛУБОКИЙ ПОИСК ФАЙЛОВ ---"
+          # Ищем все файлы .app и выводим их размер
+          find . -name "*.app" -exec du -sh {} +
           
-          echo "CHECKING FOLDERS..."
-          ls -R $PWD/build_output || echo "Folder empty"
-
-          if [ -z "$APP_PATH" ]; then
-            echo "Searching in derived_data as backup..."
-            APP_PATH=$(find $PWD/derived_data -name "*.app" -type d | grep "Release-iphoneos" | head -n 1)
+          # Пытаемся найти самый тяжелый .app (это и есть наше приложение)
+          APP_PATH=$(find . -name "*.app" -type d -exec test -e "{}/Info.plist" \; -print | head -n 1)
+          
+          echo "FOUND APP PATH: $APP_PATH"
+          
+          if [ -z "$APP_PATH" ] || [ $(du -s "$APP_PATH" | cut -f1) -lt 100 ]; then
+             echo "ERROR: Найдена пустая оболочка. Ищем бинарник внутри derived_data..."
+             APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d -exec test -e "{}/Info.plist" \; -print | head -n 1)
           fi
 
-          echo "FINAL APP PATH: $APP_PATH"
-          
           if [ -z "$APP_PATH" ]; then
-            echo "CRITICAL ERROR: No .app file was created. Xcode is blocking build without Provisioning Profile."
+            echo "КРИТИЧЕСКАЯ ОШИБКА: Xcode не создал исполняемый файл."
             exit 1
           fi
-          
+
           cp -r "$APP_PATH" build/Payload/
           cd build && zip -r NetSpec.ipa Payload
+          echo "NetSpec.ipa created!"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
